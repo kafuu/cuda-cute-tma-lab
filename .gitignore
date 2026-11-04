@@ -1,0 +1,31 @@
+# build
+build/
+cmake-build-*/
+.cache/
+compile_commands.json
+
+# artifacts：benchmark 输出、大型二进制，不提交
+artifacts/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.pyd
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# editor / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# local secrets
+.env
+*.pem
