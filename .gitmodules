@@ -1,0 +1,3 @@
+[submodule "nsys_easy"]
+	path = nsys_easy
+	url = https://github.com/harrism/nsys_easy
