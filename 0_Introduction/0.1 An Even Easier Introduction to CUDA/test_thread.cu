@@ -46,6 +46,7 @@ int main(){
  */
 
     add<<<1,256>>>(x,y,y,n);
+    add1<<<1,256>>>(x,y,y,n);
 
     cudaDeviceSynchronize();
 
