@@ -156,3 +156,75 @@ void add(float *x,float *y,float *sum, int n){
 也正好对应了1：4与1：32
 
 ## 0.3 Shared memory access in CUDA
+不同层级的存储概览
+| 存储 | 位置与作用域 | 本机容量 | 典型延迟 | 带宽定位 | 管理方式 |
+|---|---|---|---:|---|---|
+| 寄存器 | SM 内，线程私有，kernel 生命周期 | 每 SM 256 KiB | 约 1 个周期 | 最高 | 编译器分配 |
+| Shared Memory | SM 内，同一 block 共享 | 100 KiB/SM | 约 20–40 周期 | 每 SM 约 128 B/周期，冲突时下降 | 程序员显式管理 |
+| L1 Cache | SM 内，自动缓存 | 与 shared 共用物理存储 | 约 30–50 周期 | 与 shared 同一数量级 | 硬件自动 |
+| L2 Cache | GPU 内，全卡共享 | 32 MiB | 约 100–300 周期 | 通常为 DRAM 的数倍以内 | 硬件自动，可设置 persistence |
+| Global / DRAM | 片外显存 | 7.52 GiB 可用 | 约 300–600 ns | 448 GB/s 理论值 | `cudaMalloc`、访存合并 |
+| Constant | 显存承载，常数缓存加速 | 64 KiB | 命中低，未命中到显存 | warp 同地址时广播 | `__constant__` |
+| Local | 物理上在显存，线程私有 | 占用显存 | 命中 L1 较快，否则接近 DRAM | 低 | 编译器产生 spill 或大数组 |
+| Host Memory | CPU 内存，经 PCIe 访问 | 系统内存 | 微秒级 | 约 32 GB/s 单向理论上限 | `cudaMemcpy`、prefetch |
+
+
+### Shared memory
+沿第二维及更高维度访问多维数组中的元素时，就无法合并global memory访存。不过，如果使用共享内存，在这种情况下就可以合并内存访问。
+
+- shared memory的延迟量级与L1Cache同量级，是global的约100倍快（前提是不存在bank冲突）。
+- shared memory**按照线程块分配，同一线程块中的所有线程可以访问同一块shared memory**，可以共享同一线程块中的线程的数据
+
+##### 线程同步
+虽然同一线程块中的不同线程共享shared memory，但是同一线程块中会包含多个warp，所以并不是同时执行的。假设出现写后读，就要进行线程同步。
+
+同步原语：__syncthreads()
+所有线程必须都执行了__syncthreads()才能越过__syncthreads()继续执行
+**因此，可以在写后读的写与读之间，添加__syncthreads()**
+前提是__syncthreads()前的代码不能是死循环，否则会死锁
+
+#### 示例
+只能在kernel内声明共享内存
+使用 __shared__ 变量声明说明符声明共享内存
+1. 动态分配：
+    在kernel内部，使用```extern __shared__ int s[];```来进行动态分配
+    在kernel启动时，启动方式为kernel<<<grid dim,block dim,**space**>>>(para)来启动
+2. 静态分配：
+    在kernel内部,使用```__shared__  int[64]```来静态分配
+    启动方式为直接```kernel<<<grid,block>>>(para)```
+
+#### bank conflict
+bank conflict只会发生在：
+- 同一个warp
+- 同一个条shared mem load/store指令
+- 同一个warp中不同thread对不同shared memory不同地址的访问
+
+shared memory最大的带宽为：32 个 bank × 4 Byte/bank/周期 = 128 Byte/周期/SM
+bank地址为：bank = word ％ 32
+
+广播和多播：如果不同的thread访问的是同一个bank中的同一个地址，可以进行广播和多播，主要面向读访问
+
+| shared memory 访问 | bank 使用情况 | 冲突度 | 有效带宽 |
+|---|---|---:|---:|
+| `temp[tid]` | 32 个线程分别使用 32 个 bank | 1 | 约 128 B/周期 |
+| `temp[2 * tid]` | 只有偶数 bank，每个使用两次 | 2 | 约 64 B/周期 |
+| `temp[32 * tid]` | 全部使用 bank 0 | 32 | 约 4 B/周期 |
+| 所有线程读 `temp[0]` | 同一个地址 | 广播 | 一次读取后广播 |
+| `temp[tid]` 的 64 线程版本 | 每个 warp 各自覆盖 32 个 bank | 1 | 两个 warp 分别执行 |
+
+#### 实验：
+![alt text](image-17.png)
+可以看到，即使bank conflict，kernel的时间也没有拉开差距
+因为conflict对比非conflict：
+非conflict有2个warp，即两次写+两次读
+conflict有2个warp,即2 * 32次写+2 * 32次读
+两者相差128-4=124个周期，频率1.5～3GHz，则只相差约40～80ns
+
+![alt text](image-18.png)
+可以看到，放大conflict量级，差距很大
+粗略估算：每个warp增加31个额外wavefront（波前，一个 warp 的访存请求经过 LSU/L1TEX 流水线时，被硬件分成的一批处理单元。），共blocks * warps = 216 * 8 = 1728 warps
+会造成1728 * 31 * N=53568N个额外的wavefront
+36SM下额外时间为53568N/36=1488N个周期
+
+N=100000，频率最大为3.09GHz，则增加的时间最少为1488*100000/3.09=48,155,339ns
+实际增加为50,880,854 ns，结果非常吻合，当前频率约为2.924 GHz
