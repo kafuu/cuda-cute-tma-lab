@@ -71,6 +71,56 @@ blockIdx*blockDim+threadIdx:block中某个thread的初始位置
 
 粒度：一个warp32个线程是同时执行的（同一个 warp 的 lane 一起执行）
 
+### 关于统一内存
+区分：unified memory、global memory、shared memory
+
+Shared Memory：
+    片上高速存储，**block 内共享，必须显式使用。**
+
+Global Memory：
+    **显存**，全 GPU 可见，通过 L1/L2 缓存。
+
+Unified Memory：
+    统一虚拟地址和页面迁移机制，不是独立的物理存储层级。
+
+
+统一内存是一个单一的内存地址空间，系统中的任**何处理器都可以访问**。cudaMallocManaged() 是一个分配函数，它返回一个可从任何处理器访问的指针（下文中为 ptr ）。
+Unified Memory 用一个统一虚拟地址连接 CPU 和 GPU，让同一指针在两边都能使用；物理页面仍然位于 CPU 内存或 GPU 显存，并按页迁移。
+
+传统的cudaMalloc需要两份指针和显示的复制：
+```
+float *h_x;
+float *d_x;
+
+cudaMallocHost(&h_x, size);
+cudaMalloc(&d_x, size);
+
+cudaMemcpy(d_x, h_x, size, cudaMemcpyHostToDevice);
+kernel<<<grid, block>>>(d_x);
+cudaMemcpy(h_x, d_x, size, cudaMemcpyDeviceToHost);
+```
+
+Unified Memory使用一个指针
+```
+float *x;
+cudaMallocManaged(&x, size);
+```
+
+当 GPU 访问一个当前位于 CPU 内存的页面时，可能发生：
+1. GPU 触发缺页。
+2. CUDA 驱动暂停相关访问。
+3. 把页面从 CPU 内存迁移到 GPU 显存。
+4. 更新页表。
+5. GPU 继续访问。
+CPU访问位于显存的页面也同样
+
+cudaMallocManaged 只负责建立统一地址。
+CPU 初始化后，页面通常先在主机内存。
+cudaMemPrefetchAsync 把页面提前迁移到 GPU。
+kernel 访问 GPU 本地页面时，性能才接近普通 global memory。
+CPU 在 kernel 结束前访问同一块数据，会产生数据竞争或额外迁移。
+cudaFree 负责释放 managed allocation。
+
 ## 0.2 关于global mem合并访存
 | | Global Memory | Shared Memory |
 |---|---|---|
