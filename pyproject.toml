@@ -1,0 +1,10 @@
+[project]
+name = "cuda-cute-tma-lab"
+version = "0.1.0"
+description = "CUDA, CuTe DSL, and TMA GEMM learning lab"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["2_dsl_gemm/tests"]
+pythonpath = ["2_dsl_gemm/src"]
+addopts = "-ra"

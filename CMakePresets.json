@@ -1,0 +1,92 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "local-sm120-debug",
+      "displayName": "Local RTX 5060 Ti debug",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/local-sm120-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CUDA_ARCHITECTURES": "120"
+      }
+    },
+    {
+      "name": "local-sm120-release",
+      "displayName": "Local RTX 5060 Ti release",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/local-sm120-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CUDA_ARCHITECTURES": "120"
+      }
+    },
+    {
+      "name": "h200-sm90-release",
+      "displayName": "H200 SM90 release",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/h200-sm90-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CUDA_ARCHITECTURES": "90"
+      }
+    },
+    {
+      "name": "h200-sm90a-release",
+      "displayName": "H200 SM90a release",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/h200-sm90a-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CUDA_ARCHITECTURES": "90a"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local-sm120-debug",
+      "configurePreset": "local-sm120-debug"
+    },
+    {
+      "name": "local-sm120-release",
+      "configurePreset": "local-sm120-release"
+    },
+    {
+      "name": "h200-sm90-release",
+      "configurePreset": "h200-sm90-release"
+    },
+    {
+      "name": "h200-sm90a-release",
+      "configurePreset": "h200-sm90a-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "local-sm120-debug",
+      "configurePreset": "local-sm120-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "local-sm120-release",
+      "configurePreset": "local-sm120-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

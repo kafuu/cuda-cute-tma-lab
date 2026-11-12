@@ -1,8 +1,9 @@
 # CUDA-CuTe-TMA GEMM Lab 任务书
 
-版本：0.4  
-日期：2026-11-04  
-项目目录：`D:\project\cuda-cute-tma-lab`
+版本：0.5
+
+日期：2026-11-12
+项目目录：`/home/chino/project/cuda-cute-tma-lab`
 
 ## 1. 项目定义
 
@@ -56,17 +57,21 @@
 | `h200-sm90` | H200 | compute capability 9.0 | 离线批次：较大矩阵、分架构复跑 |
 | `h200-sm90a` | H200 | Hopper 架构特性 | 离线批次：Hopper WGMMA 路径 |
 
-本地当前信息（2026-11-04 实测）：
+本地当前信息（2026-11-12 实测）：
 
 - GPU：NVIDIA GeForce RTX 5060 Ti
 - compute capability：12.0
 - 显存：8151 MiB
-- CUDA driver：610.88，已安装
-- Python：3.12.10，pip 25.0.1
-- 磁盘：D 盘剩余约 139 GB
-- 尚未安装：git、CUDA Toolkit（`nvcc`）、CMake、Ninja、MSVC（VS Build Tools）、PyTorch
+- CUDA driver：580.178.04
+- CUDA Toolkit：13.4.92
+- CMake：4.2.3
+- Ninja：1.13.2
+- host compiler：GNU 15.2.0
+- Python：项目虚拟环境 3.12.15，pytest 9.2.0
+- GPU 理论显存带宽：448 GB/s（128-bit GDDR7）
 
-`git`、CMake、Ninja、MSVC、CUDA Toolkit、PyTorch 六项全缺。P0 的第一步是补齐这些，而不是写代码。
+P0 的本地工程骨架已经建立。仍需完成版本锁定、CUTLASS/DSL 版本验证、
+容器与 H200 上机 runbook。
 
 ## 2. 项目架构
 
@@ -129,121 +134,76 @@ dtype          = fp32 | fp16 | bf16
 
 ## 3. 文件组织
 
+### 3.1 当前落地结构
+
+项目按实现方案组织顶层目录。目录编号表示方案分类，不替代任务阶段编号：
+P2 对应 `1_basic_gemm`，P3 对应 `3_tma_gemm`，P4 对应 `2_dsl_gemm`。
+建议学习顺序为 `0_introduction -> 1_basic_gemm -> 3_tma_gemm -> 2_dsl_gemm`，
+这样先理解手写 TMA，再理解 DSL 如何封装布局和 copy。
+
 ```text
 cuda-cute-tma-lab/
-  TASKBOOK.md
-  README.md
   CMakeLists.txt
   CMakePresets.json
   pyproject.toml
-  requirements-dev.txt
-  .gitignore
+  TASKBOOK.md
+  README.md
 
-  cmake/
-    CudaArch.cmake
-    Cutlass.cmake
-    CompilerWarnings.cmake
+  0_introduction/
+    examples/                 # 现有入门实验
+    tests/test_add_smoke.cu
+    CMakeLists.txt
+    README.md
 
-  include/ccg/
-    cuda_check.hpp
-    gemm_types.hpp
-    gemm_api.hpp
-    layout.hpp
-    tma_descriptor.hpp
-    swizzle.hpp
-    metrics.hpp
-    timer.hpp
+  1_basic_gemm/
+    include/ccg/basic_gemm.hpp
+    src/gemm_naive.cu
+    tests/test_gemm_naive.cu
+    bench/bench_gemm.cu
+    CMakeLists.txt
+    README.md
 
-  src/
-    common/
-      gemm_api.cpp
-      layout.cpp
-      tma_descriptor.cpp
-      swizzle.cpp
-      metrics.cpp
+  2_dsl_gemm/
+    src/dsl_gemm/layout_reference.py
+    tests/test_layout_reference.py
+    tests/test_dsl_environment.py
+    README.md
 
-    cuda/
-      gemm_naive.cu
-      gemm_shared.cu
-      gemm_tma.cu
-      gemm_tma_pipeline.cu
+  3_tma_gemm/
+    tests/test_tma_descriptor.cu
+    bench/README.md
+    CMakeLists.txt
+    README.md
 
-    cli/
-      gemm_lab.cpp
-
-  python/ccg/
-    __init__.py
-    ops.py
-    cuda_linear.py
-    model_patch.py
-    reference.py
-    gemm_cute_dsl.py
-
-  tests/
-    cpp/
-      test_layout.cpp
-      test_tma_descriptor.cpp
-      test_swizzle.cpp
-
-    cuda/
-      test_gemm_naive.cu
-      test_gemm_shared.cu
-      test_gemm_tma.cu
-
-    python/
-      test_ops.py
-      test_cuda_linear.py
-      test_block_patch.py
-      test_generation.py
-      test_gemm_cute_dsl.py
-
-    reference/
-      tolerances.yaml
-      shapes.yaml
-
-  bench/
-    run_bench.py
-    summarize.py
-    shapes.yaml
-
-  configs/
-    hardware/
-      local-sm120.yaml
-      h200-sm90.yaml
-
-  data/prompts/
-    correctness.jsonl
-    generation.jsonl
-
-  docker/
-    Dockerfile
-    build.sh
-    run_h200.sh
-
-  scripts/
-    configure_local.ps1
-    configure_h200.sh
-    run_tests.ps1
-    run_tests.sh
-    run_bench.sh
-
-  docs/
-    architecture.md
-    cuda_basics.md
-    tma.md
-    cute.md
-    llm_validation.md
-    results.md
-
-  third_party/
-    cutlass/          # 仅 C++ CuTe 回退时使用
+  notes/
+  scripts/run_tests.sh
 ```
 
-约定：
+组织规则：
 
-- `third_party/cutlass` 固定 commit。
+- 每个方案目录自带 `README.md` 和 `tests/`。
+- 方案之间不共用同一组 source/test 文件，避免实现和测试混在一起。
+- CUDA 方案使用各自的 `CMakeLists.txt` 和 CMake target。
+- CuTe DSL 方案使用 Python 测试，不进入 CUDA CMake target。
+- 根 `CMakeLists.txt` 只负责公共语言标准、CUDAToolkit 和子目录入口。
+- 根 `CMakePresets.json` 提供 `local-sm120`、`h200-sm90` 和 `h200-sm90a`
+  的配置入口。
+- `scripts/run_tests.sh` 统一执行 CTest 和 Python DSL 测试。
+- 当前 `1_basic_gemm` 只提供 naive 基线；shared tiled、register tiled
+  继续放入同一阶段目录，但使用独立源文件和测试。
+- 当前 `3_tma_gemm` 只提供 descriptor smoke test；TMA load、mbarrier、
+  pipeline 和性能测试继续放入该目录。
+- 当前 `2_dsl_gemm` 先提供 Python Layout 参考实现和 DSL 可用性检查，
+  实际 CuTe DSL kernel 后续加入。
+
+### 3.2 后续扩展规则
+
+- 公共测试数据、容差和 benchmark 报告放入已有的方案目录，不再建立根级
+  `tests/` 或根级 `src/`。
+- 需要跨方案共享的 C++ 工具放入 `include/ccg/`；只属于某个实现的代码
+  留在该方案目录。
 - 生成结果放入 `artifacts/`，不提交大型二进制。
-- 每个 kernel 的架构限制写入对应文档和 CMake target。
+- 每个 kernel 的架构限制写入对应目录的 README 和 CMake target。
 - 一个 kernel 文件只负责一种主要加载机制。
 - CuTe DSL 文件不进入 CMake 构建，由 pip 安装的 `nvidia-cutlass-dsl` 运行。
 
@@ -685,7 +645,7 @@ tile 类：  M=128, N=256, K=4096
 - [CuTe TMA Tensors](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/0z_tma_tensors.html)
 - [CUTLASS CuTe tutorial examples](https://github.com/NVIDIA/cutlass/tree/main/examples/cute/tutorial)
 - CuTe DSL：`pip install nvidia-cutlass-dsl`，示例在 CUTLASS 仓库的 Python examples 目录
-- 本地资料索引：`D:\project\TMA-DSL-学习资料索引.md`（路径待确认）
+- 本地资料索引：待补充
 
 ## 11. 建议执行顺序
 
@@ -703,6 +663,18 @@ P0 工程基础
 按每周 8–10 小时估计，P0–P4 约 6–8 周，P5–P7 约 2–4 周。该排期是建议，不是课程或论文承诺。
 
 ## 12. 变更记录
+
+### 0.5（2026-11-12）
+
+- 顶层目录改为按方案组织：`0_introduction`、`1_basic_gemm`、
+  `2_dsl_gemm`、`3_tma_gemm`。
+- 新增根 `CMakeLists.txt`、`CMakePresets.json`、`pyproject.toml` 和
+  统一测试脚本。
+- 每个方案目录增加独立 `README.md`、`tests/`；CUDA 方案增加独立
+  `CMakeLists.txt`。
+- 增加 naive GEMM 基线、TMA descriptor smoke test、DSL Layout
+  参考测试。
+- 明确目录编号与 P2/P3/P4 的映射及建议学习顺序。
 
 ### 0.4（2026-11-04）
 
